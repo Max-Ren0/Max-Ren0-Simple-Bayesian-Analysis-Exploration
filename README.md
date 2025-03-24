@@ -25,6 +25,7 @@ Make Bayesian analysis more accessible to undergraduate students by:
 
 ## 👨‍🏫 Supervisor
 
+- Dr. Brendon Brewer, Department of Statistics
 - Dr. James Curran, Department of Statistics
 
 ---
