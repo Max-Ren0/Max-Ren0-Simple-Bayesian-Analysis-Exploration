@@ -19,16 +19,20 @@ ui <- fluidPage(
             # Checkbox to switch between drawn prior and Beta prior
             checkboxInput("use_beta", "Use Beta Prior (instead of drawn prior)", value = FALSE),
             
-            # Beta prior parameters
-            numericInput("a", "Prior Alpha (a):", min = 0.1, max = 10, value = 1),
-            numericInput("b", "Prior Beta (b):", min = 0.1, max = 10, value = 1),
+            # Conditional display of a and b
+            conditionalPanel(
+                condition = "input.use_beta == true",
+                numericInput("a", "Prior Alpha (a):", min = 0.1, max = 10, value = 1),
+                numericInput("b", "Prior Beta (b):", min = 0.1, max = 10, value = 1)
+            ),
             
             # Button to update posterior distribution
             actionButton("update_posterior", "Compute Posterior Distribution"),
             
-            # Summary moved to sidebarPanel
+            # Summary
             wellPanel(h4("Summary of Posterior"), verbatimTextOutput("posteriorSummary"))
-        ),
+        )
+        ,
         
         mainPanel(
             plotOutput("drawPlot", click = "plot_click"),
@@ -140,7 +144,7 @@ server <- function(input, output, session) {
             "Posterior Alpha (a): ", round(a_post, 3), "\n",
             "Posterior Beta (b): ", round(b_post, 3), "\n",
             "Mean: ", round(mean_post, 3), "\n",
-            "Variance: ", round(var_post, 6), "\n",
+            "SD: ", round(sqrt(var_post), 6), "\n",
             "Median: ", round(posterior_median, 3), "\n",
             "Mode: ", round(posterior_mode, 3), "\n",
             "95% Credible Interval: [", round(lower_bound, 3), ", ", round(upper_bound, 3), "]"
