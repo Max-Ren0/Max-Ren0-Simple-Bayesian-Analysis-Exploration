@@ -2,54 +2,61 @@ library(shiny)
 library(ggplot2)
 library(dplyr)
 
-# UI Layout
 ui <- fluidPage(
     titlePanel("Draw Prior & Compute Bayesian Posterior"),
     
     sidebarLayout(
         sidebarPanel(
             h3("Click to draw your prior distribution"),
-            actionButton("clear", "Clear Drawing"),
-            br(),
             
-            # Input fields for observed data
+            # Inputs for observed data
             numericInput("x", "Number of Successes (x):", min = 1, max = 50, value = 25),
             numericInput("N", "Total Trials (N):", min = 1, max = 100, value = 50),
             
-            # Checkbox to switch between drawn prior and Beta prior
+            # Use Beta prior checkbox
             checkboxInput("use_beta", "Use Beta Prior (instead of drawn prior)", value = FALSE),
             
-            # Conditional display of a and b
+            # Conditional display for Beta parameters
             conditionalPanel(
                 condition = "input.use_beta == true",
                 numericInput("a", "Prior Alpha (a):", min = 0.1, max = 10, value = 1),
                 numericInput("b", "Prior Beta (b):", min = 0.1, max = 10, value = 1)
             ),
             
-            # Button to update posterior distribution
-            actionButton("update_posterior", "Compute Posterior Distribution"),
+            div(
+                style = "display: flex; justify-content: space-between;",
+                actionButton("clear", "Clear Drawing"),
+                actionButton("update_posterior", "Compute Posterior Distribution")
+            ),
             
-            # Summary
+            
+            # Posterior summary
+            br(),
             wellPanel(h4("Summary of Posterior"), verbatimTextOutput("posteriorSummary"))
         )
         ,
         
         mainPanel(
-            plotOutput("drawPlot", click = "plot_click"),
+            plotOutput("drawPlot", click = "plot_click", height = "500px", width = "500px"),
             plotOutput("posteriorPlot")
         )
     )
 )
 
-# Server Logic
 server <- function(input, output, session) {
-    values <- reactiveValues(data = data.frame(x = numeric(), y = numeric()), compute_posterior = FALSE, posterior_summary = "", prior_vals = NULL, posterior_manual = NULL)
+    values <- reactiveValues(
+        data = data.frame(x = numeric(), y = numeric()), 
+        compute_posterior = FALSE, 
+        posterior_summary = "", 
+        prior_vals = NULL, 
+        posterior_manual = NULL
+    )
     
     observeEvent(input$plot_click, {
         new_x <- input$plot_click$x
         new_y <- input$plot_click$y
         
-        if (!is.null(new_x) && !is.null(new_y) && new_x >= 0 && new_x <= 1) {  
+        if (!is.null(new_x) && !is.null(new_y) && new_x >= 0 && new_x <= 1 && new_y >= 0 && new_y <= 1) {
             values$data <- rbind(values$data, data.frame(x = new_x, y = new_y))
         }
     })
@@ -57,26 +64,34 @@ server <- function(input, output, session) {
     observeEvent(input$clear, {
         values$data <- data.frame(x = numeric(), y = numeric())
     })
-    
     output$drawPlot <- renderPlot({
         df <- values$data
         
-        p <- ggplot() +
-            ggtitle("User-Drawn Prior Distribution") +
-            xlab("θ") + ylab("Density") +
-            theme_minimal() +
-            xlim(0, 1) + ylim(0, 1) +  
-            geom_blank()
+        # Use transparent points to ensure the axes are visible at first
+        placeholder_df <- data.frame(x = c(0, 1), y = c(0, 1))
         
-        if (nrow(df) > 0) {
-            df <- df %>% arrange(x)
-            p <- p + 
-                geom_line(data = df, aes(x, y), color = "blue", size = 1) + 
-                geom_point(data = df, aes(x, y), color = "black", size = 2)
-        }
-        
-        print(p)
+        ggplot() +
+            geom_point(data = placeholder_df, aes(x, y), alpha = 0) +  # 👈 Invisible point, triggers coordinate system display
+            coord_fixed(xlim = c(0, 1), ylim = c(0, 1), expand = FALSE) +
+            labs(title = "User-Drawn Prior Distribution", x = "θ", y = "Density") +
+            theme_minimal(base_size = 14) +
+            theme(
+                plot.margin = margin(10, 10, 10, 10),
+                axis.title = element_text(size = 14),
+                axis.text = element_text(size = 12)
+            ) +
+            {
+                if (nrow(df) > 0) {
+                    df <- df %>% arrange(x)
+                    list(
+                        geom_line(data = df, aes(x, y), color = "blue", size = 1),
+                        geom_point(data = df, aes(x, y), color = "black", size = 2)
+                    )
+                }
+            }
     })
+    
+    
     
     observeEvent(input$update_posterior, {
         values$compute_posterior <- TRUE
@@ -89,7 +104,6 @@ server <- function(input, output, session) {
             showModal(modalDialog("Error: Number of successes (x) cannot be greater than total trials (N).", easyClose = TRUE))
             return()
         }
-        
         
         theta_vals <- seq(0, 1, length.out = 500)
         gap <- theta_vals[2] - theta_vals[1]
@@ -128,17 +142,11 @@ server <- function(input, output, session) {
         mean_post <- sum(theta_vals * values$posterior_manual) / sum(values$posterior_manual)
         var_post <- sum((theta_vals - mean_post)^2 * values$posterior_manual) / sum(values$posterior_manual)
         
-        
         post_cdf <- cumsum(values$posterior_manual) / sum(values$posterior_manual)
         posterior_median <- theta_vals[which.min(abs(post_cdf - 0.5))]
-        
-        
         posterior_mode <- theta_vals[which.max(values$posterior_manual)]
-        
-        
         lower_bound <- theta_vals[which.min(abs(post_cdf - 0.025))]
         upper_bound <- theta_vals[which.min(abs(post_cdf - 0.975))]
-        
         
         values$posterior_summary <- paste0(
             "Posterior Alpha (a): ", round(a_post, 3), "\n",
@@ -149,7 +157,6 @@ server <- function(input, output, session) {
             "Mode: ", round(posterior_mode, 3), "\n",
             "95% Credible Interval: [", round(lower_bound, 3), ", ", round(upper_bound, 3), "]"
         )
-        
     })
     
     output$posteriorPlot <- renderPlot({
@@ -167,10 +174,10 @@ server <- function(input, output, session) {
             scale_color_manual(values = c("blue", "red")) +
             labs(title = "Prior & Posterior Distributions", x = "θ", y = "Density") +
             theme_minimal() +
-            coord_cartesian(xlim = c(0, 1)) +  
-            scale_x_continuous(breaks = seq(0, 1, by = 0.1), expand = c(0, 0)) +  
-            ylim(0, max(df$density) * 1.1) +  
-            theme(legend.position = c(0.8,0.9))
+            coord_cartesian(xlim = c(0, 1)) +
+            scale_x_continuous(breaks = seq(0, 1, by = 0.1), expand = c(0, 0)) +
+            ylim(0, max(df$density) * 1.1) +
+            theme(legend.position = c(0.8, 0.9))
     })
     
     output$posteriorSummary <- renderText({
