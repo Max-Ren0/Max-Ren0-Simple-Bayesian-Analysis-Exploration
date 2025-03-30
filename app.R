@@ -67,11 +67,10 @@ server <- function(input, output, session) {
     output$drawPlot <- renderPlot({
         df <- values$data
         
-        # Use transparent points to ensure the axes are visible at first
         placeholder_df <- data.frame(x = c(0, 1), y = c(0, 1))
         
         ggplot() +
-            geom_point(data = placeholder_df, aes(x, y), alpha = 0) +  # 👈 Invisible point, triggers coordinate system display
+            geom_point(data = placeholder_df, aes(x, y), alpha = 0) +
             coord_fixed(xlim = c(0, 1), ylim = c(0, 1), expand = FALSE) +
             labs(title = "User-Drawn Prior Distribution", x = "θ", y = "Density") +
             theme_minimal(base_size = 14) +
@@ -81,8 +80,12 @@ server <- function(input, output, session) {
                 axis.text = element_text(size = 12)
             ) +
             {
-                if (nrow(df) > 0) {
-                    df <- df %>% arrange(x)
+                if (nrow(df) > 1) {
+                    df <- df %>%
+                        arrange(x) %>%
+                        group_by(x) %>%
+                        summarise(y = mean(y), .groups = "drop")
+                    
                     list(
                         geom_line(data = df, aes(x, y), color = "blue", size = 1),
                         geom_point(data = df, aes(x, y), color = "black", size = 2)
@@ -90,6 +93,7 @@ server <- function(input, output, session) {
                 }
             }
     })
+    
     
     
     
@@ -148,15 +152,27 @@ server <- function(input, output, session) {
         lower_bound <- theta_vals[which.min(abs(post_cdf - 0.025))]
         upper_bound <- theta_vals[which.min(abs(post_cdf - 0.975))]
         
-        values$posterior_summary <- paste0(
-            "Posterior Alpha (a): ", round(a_post, 3), "\n",
-            "Posterior Beta (b): ", round(b_post, 3), "\n",
-            "Mean: ", round(mean_post, 3), "\n",
-            "SD: ", round(sqrt(var_post), 6), "\n",
-            "Median: ", round(posterior_median, 3), "\n",
-            "Mode: ", round(posterior_mode, 3), "\n",
-            "95% Credible Interval: [", round(lower_bound, 3), ", ", round(upper_bound, 3), "]"
+        summary_lines <- c()
+        
+        if (input$use_beta) {
+            summary_lines <- c(
+                summary_lines,
+                paste0("Posterior Alpha (a): ", round(a_post, 3)),
+                paste0("Posterior Beta (b): ", round(b_post, 3))
+            )
+        }
+        
+        summary_lines <- c(
+            summary_lines,
+            paste0("Mean: ", round(mean_post, 3)),
+            paste0("SD: ", round(sqrt(var_post), 6)),
+            paste0("Median: ", round(posterior_median, 3)),
+            paste0("Mode: ", round(posterior_mode, 3)),
+            paste0("95% Credible Interval: [", round(lower_bound, 3), ", ", round(upper_bound, 3), "]")
         )
+        
+        values$posterior_summary <- paste(summary_lines, collapse = "\n")
+        
     })
     
     output$posteriorPlot <- renderPlot({
