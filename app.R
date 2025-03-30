@@ -64,6 +64,7 @@ server <- function(input, output, session) {
     observeEvent(input$clear, {
         values$data <- data.frame(x = numeric(), y = numeric())
     })
+    
     output$drawPlot <- renderPlot({
         df <- values$data
         
@@ -94,9 +95,6 @@ server <- function(input, output, session) {
             }
     })
     
-    
-    
-    
     observeEvent(input$update_posterior, {
         values$compute_posterior <- TRUE
         
@@ -120,37 +118,39 @@ server <- function(input, output, session) {
             values$prior_vals <- dbeta(theta_vals, shape1 = input$a, shape2 = input$b)
             a_post <- input$a + input$x
             b_post <- input$b + input$N - input$x
-            
+            result <- Bolstad::binobp(x = input$x, n = input$N, a = input$a, b = input$b,pi = theta_vals, plot = FALSE)
+            values$posterior_manual <- result$posterior
         } else {
             df <- values$data %>% arrange(x)
             if (nrow(df) > 1) {
-                df$y <- df$y / sum(df$y)
+                df$y <- df$y / sum(df$y)  
                 values$prior_vals <- approx(df$x, df$y, xout = theta_vals, rule = 2)$y
-                values$prior_vals <- values$prior_vals / (gap * sum(values$prior_vals))
+                values$prior_vals <- values$prior_vals / sum(values$prior_vals)  
             } else {
                 showModal(modalDialog("Error: Please draw a valid prior distribution first.", easyClose = TRUE))
                 return()
             }
             
-            mean_prior <- sum(theta_vals * values$prior_vals) / sum(values$prior_vals)
-            var_prior <- sum((theta_vals - mean_prior)^2 * values$prior_vals) / sum(values$prior_vals)
+            # Bolstad::binodp
+            result <- Bolstad::binodp(
+                x = input$x,
+                n = input$N,
+                pi = theta_vals,
+                pi.prior = values$prior_vals,
+                plot = FALSE
+            )
             
-            a_post <- (mean_prior * (1 - mean_prior) / var_prior - 1) * mean_prior
-            b_post <- (mean_prior * (1 - mean_prior) / var_prior - 1) * (1 - mean_prior)
+            values$posterior_manual <- result$posterior
+        
         }
         
-        likelihood_vals <- dbinom(input$x, size = input$N, prob = theta_vals)
-        values$posterior_manual <- values$prior_vals * likelihood_vals
-        values$posterior_manual <- values$posterior_manual / (gap * sum(values$posterior_manual))
+        mean_post <- result$mean
+        var_post <- result$var
+        posterior_median <- if (!is.null(result$quantiles)) result$quantiles["0.5"] else result$quantileFun(0.5)
+        posterior_mode <- result$pi[which.max(result$posterior)]
+        lower_bound <- if (!is.null(result$quantiles)) result$quantiles["0.025"] else result$quantileFun(0.025)
+        upper_bound <- if (!is.null(result$quantiles)) result$quantiles["0.975"] else result$quantileFun(0.975)
         
-        mean_post <- sum(theta_vals * values$posterior_manual) / sum(values$posterior_manual)
-        var_post <- sum((theta_vals - mean_post)^2 * values$posterior_manual) / sum(values$posterior_manual)
-        
-        post_cdf <- cumsum(values$posterior_manual) / sum(values$posterior_manual)
-        posterior_median <- theta_vals[which.min(abs(post_cdf - 0.5))]
-        posterior_mode <- theta_vals[which.max(values$posterior_manual)]
-        lower_bound <- theta_vals[which.min(abs(post_cdf - 0.025))]
-        upper_bound <- theta_vals[which.min(abs(post_cdf - 0.975))]
         
         summary_lines <- c()
         
@@ -174,6 +174,7 @@ server <- function(input, output, session) {
         values$posterior_summary <- paste(summary_lines, collapse = "\n")
         
     })
+
     
     output$posteriorPlot <- renderPlot({
         if (!values$compute_posterior || is.null(values$prior_vals) || is.null(values$posterior_manual)) return(NULL)
