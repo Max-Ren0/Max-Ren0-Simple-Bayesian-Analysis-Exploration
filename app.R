@@ -34,6 +34,7 @@ server <- function(input, output, session) {
             return(result$quantileFun(q))
         }
     }
+   
     values <- reactiveValues(
         data = data.frame(x = numeric(), y = numeric()),
         compute_posterior = FALSE,
@@ -82,7 +83,7 @@ server <- function(input, output, session) {
                    )
                ),
                "Poisson" = tagList(
-                   numericInput("lambda_min", "Lambda Range Min:", value = 0),
+                   numericInput("lambda_min", "Lambda Range Min:", value = 0.01),
                    numericInput("lambda_max", "Lambda Range Max:", value = 50),
                    numericInput("sum_x", "Sum of Observed Counts (∑x):", value = 20, min = 0),
                    numericInput("n", "Number of Observations (n):", value = 10, min = 1),
@@ -172,40 +173,49 @@ server <- function(input, output, session) {
             lambda_vals <- seq(input$lambda_min, input$lambda_max, length.out = 500)
             gap <- diff(lambda_vals)[1]
             if (input$use_gamma) {
-                values$prior_vals <- dgamma(lambda_vals, input$a, input$b)
-                likelihood <- lambda_vals^input$sum_x * exp(-input$n * lambda_vals)
+                prior_vals <- dgamma(lambda_vals, input$a, input$b)
+                prior_vals <- prior_vals / (gap * sum(prior_vals)) 
             } else {
                 df <- values$data
                 if (nrow(df) <= 1) {
                     showModal(modalDialog("Please draw a valid prior first.", easyClose = TRUE))
                     return()
                 }
+                
                 df <- df %>% arrange(x)
                 prior_vals <- approx(df$x, df$y / sum(df$y), xout = lambda_vals, rule = 2)$y
                 prior_vals <- pmax(prior_vals, 0)
                 prior_vals <- prior_vals / (gap * sum(prior_vals))
-                values$prior_vals <- prior_vals
-                likelihood <- lambda_vals^input$sum_x * exp(-input$n * lambda_vals)
             }
-            posterior <- values$prior_vals * likelihood
+            
+            likelihood <- lambda_vals^input$sum_x * exp(-input$n * lambda_vals)
+            
+            posterior <- prior_vals * likelihood
             posterior <- posterior / (gap * sum(posterior))
+            
+            values$prior_vals <- prior_vals
             values$posterior_manual <- posterior
+            
             mean_post <- sum(lambda_vals * posterior) * gap
             var_post <- sum((lambda_vals - mean_post)^2 * posterior) * gap
             cdf_post <- cumsum(posterior) * gap
+            median_post <- lambda_vals[which.min(abs(cdf_post - 0.5))]
+            mode_post <- lambda_vals[which.max(posterior)]
+            ci_lower <- lambda_vals[which.min(abs(cdf_post - 0.025))]
+            ci_upper <- lambda_vals[which.min(abs(cdf_post - 0.975))]
+            
             values$posterior_summary <- paste(c(
                 paste("Mean:", round(mean_post, 3)),
                 paste("SD:", round(sqrt(var_post), 6)),
-                paste("Median:", round(lambda_vals[which.min(abs(cdf_post - 0.5))], 3)),
-                paste("Mode:", round(lambda_vals[which.max(posterior)], 3)),
-                paste0("95% CI: [", 
-                       round(lambda_vals[which.min(abs(cdf_post - 0.025))], 3), ", ",
-                       round(lambda_vals[which.min(abs(cdf_post - 0.975))], 3), "]")
+                paste("Median:", round(median_post, 3)),
+                paste("Mode:", round(mode_post, 3)),
+                paste0("95% CI: [", round(ci_lower, 3), ", ", round(ci_upper, 3), "]")
             ), collapse = "\n")
-            
         }
         
         if (input$model_type == "Normal") {
+            
+            
             mu_vals <- seq(input$mu_min, input$mu_max, length.out = 500)
             gap <- diff(mu_vals)[1]
             x_bar <- input$sum_x / input$n
